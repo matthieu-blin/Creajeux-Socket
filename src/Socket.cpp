@@ -97,8 +97,22 @@ int main(int argc, char* argv[])
 			printf("waiting for client to connect...");
 			if (clientSocket = OS_Accept(socket, sockAddrCast(clientSin), &clientSinSize))
 			{
-				printf("client connected, sending hello msg\n");
-				OS_Send(clientSocket, "hello\r\n", 14, 0);
+				printf("client connected, waiting for msg\n");
+				char lbuf[1024];
+				int size = 0;
+				do {
+					size = OS_Recv(clientSocket, lbuf, 1024, 0);
+					if (size > 0)
+					{
+						std::string msg(lbuf, size);
+						printf("<< %s \n", msg.c_str());
+						if (msg.compare("Hello?") == 0)
+						{
+							printf(">> Hi!\n");
+							OS_Send(clientSocket, "Hi!", 3, 0);
+						}
+					}
+				} while (size > 0);
 				OS_CloseSocket(clientSocket);
 			}
 		}
@@ -116,6 +130,9 @@ int main(int argc, char* argv[])
 			exit(errno);
 		}
 
+		OS_Send(socket, "*Wave*", 6, 0);
+		Sleep(2000);
+		OS_Send(socket, "Hello?", 6, 0);
 		char lbuf[1024];
 		int rsiz = OS_Recv(socket, lbuf, 1024, 0);
 		if (rsiz <= 0)
