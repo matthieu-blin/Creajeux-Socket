@@ -101,15 +101,24 @@ int main(int argc, char* argv[])
 				char lbuf[1024];
 				int size = 0;
 				do {
-					size = OS_Recv(clientSocket, lbuf, 1024, 0);
-					if (size > 0)
+					printf(".");
+					fd_set readFDSet;
+					FD_ZERO(&readFDSet);
+					FD_SET(clientSocket, &readFDSet);
+
+					int rc = OS_Select(int32_t(clientSocket + 1), &readFDSet, NULL, NULL, NULL);
+					if (rc > 0 && FD_ISSET(clientSocket, &readFDSet))
 					{
-						std::string msg(lbuf, size);
-						printf("<< %s \n", msg.c_str());
-						if (msg.compare("Hello?") == 0)
+						size = OS_Recv(clientSocket, lbuf, 1024, 0);
+						if (size > 0)
 						{
-							printf(">> Hi!\n");
-							OS_Send(clientSocket, "Hi!", 3, 0);
+							std::string msg(lbuf, size);
+							printf("<< %s \n", msg.c_str());
+							if (msg.compare("Hello?") == 0)
+							{
+								printf(">> Hi!\n");
+								OS_Send(clientSocket, "Hi!", 3, 0);
+							}
 						}
 					}
 				} while (size > 0);
@@ -130,6 +139,7 @@ int main(int argc, char* argv[])
 			exit(errno);
 		}
 
+		Sleep(20000);
 		OS_Send(socket, "*Wave*", 6, 0);
 		Sleep(2000);
 		OS_Send(socket, "Hello?", 6, 0);
