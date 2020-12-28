@@ -1,5 +1,5 @@
 #pragma once
-#if WIN32
+#if  _WIN32 
 #include "WinSocket.h"
 #endif
 //

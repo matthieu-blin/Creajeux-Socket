@@ -17,7 +17,7 @@ int main(int argc, char* argv[])
 		for(int idxArg = 1; idxArg < argc; ++idxArg)
 		{
 			std::string tmp = argv[idxArg];
-			int point = tmp.find_last_of(".");
+			size_t point = tmp.find_last_of(".");
 
 			// loop on args
 			size_t line = tmp.find_first_of("-");
