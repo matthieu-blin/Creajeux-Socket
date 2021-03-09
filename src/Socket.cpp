@@ -1,8 +1,12 @@
 #include <stdio.h>
+#include <iostream>
 #include <stdlib.h>
 #include <string>
 #include "Socket.h"
 #include <functional>
+#include <thread>
+#include <vector>
+#include <mutex>
 
 #define INET_IPV4_ADDRSTRLEN 15
 
@@ -70,14 +74,13 @@ int main(int argc, char* argv[])
 	if (socket == OS_InvalidSocket)
 	{
 		int err = WSAGetLastError();
-		printf("cant initialize socket error %d\n", errno);
+		std::cout << "cant initialize socket error " << errno << std::endl;
 		exit(errno);
 	}
 
 	sin.sin_family = AF_INET;
 	if (server)
 	{
-		OS_Sockfd clientSocket;
 		sockaddr_in clientSin;
 		socklen_t clientSinSize = sizeof(clientSin);
 		//transform ip from host to network byte order (127.0.0.1 -> 1.0.0.127)
@@ -87,44 +90,70 @@ int main(int argc, char* argv[])
 		//link your socket to a communication point 
 		if (OS_Bind(socket, sockAddrCast(sin), sizeof(sin)) < 0)
 		{
-			printf("cant bind socket\n");
+			std::cout << "cant bind socket" << std::endl;
 			OS_CloseSocket(socket);
 			exit(errno);
 		}
 		OS_Listen(socket, 0);
-		while (true)
-		{
-			printf("waiting for client to connect...");
-			if (clientSocket = OS_Accept(socket, sockAddrCast(clientSin), &clientSinSize))
+		std::vector<std::thread*> threads;
+		std::mutex messMut;
+		std::vector<std::string> pendingInmessages;
+		std::mutex socketMut;
+		std::vector<OS_Sockfd> sockets;
+		bool terminate = false;
+		//accept thread
+		std::thread acceptThread([&]() {
+			while (!terminate)
 			{
-				printf("client connected, waiting for msg\n");
-				char lbuf[1024];
-				int size = 0;
-				do {
-					printf(".");
-					fd_set readFDSet;
-					FD_ZERO(&readFDSet);
-					FD_SET(clientSocket, &readFDSet);
-
-					int rc = OS_Select(int32_t(clientSocket + 1), &readFDSet, NULL, NULL, NULL);
-					if (rc > 0 && FD_ISSET(clientSocket, &readFDSet))
-					{
-						size = OS_Recv(clientSocket, lbuf, 1024, 0);
-						if (size > 0)
-						{
-							std::string msg(lbuf, size);
-							printf("<< %s \n", msg.c_str());
-							if (msg.compare("Hello?") == 0)
+				std::cout << "waiting for clients to connect..." << std::endl;
+				if (OS_Sockfd clientSocket = OS_Accept(socket, sockAddrCast(clientSin), &clientSinSize))
+				{
+					socketMut.lock();
+					sockets.push_back(clientSocket);
+					socketMut.unlock();
+					std::cout << "client connected, starting thread" << std::endl;
+					threads.push_back(new std::thread([&terminate, clientSocket, &messMut, &pendingInmessages]() {
+						char lbuf[1024];
+						int size = 0;
+						while (!terminate) {
+							size = OS_Recv(clientSocket, lbuf, 1024, 0);
+							if (size > 0)
 							{
-								printf(">> Hi!\n");
-								OS_Send(clientSocket, "Hi!", 3, 0);
+								std::string msg(lbuf, size);
+								messMut.lock();
+								pendingInmessages.push_back(msg);
+								messMut.unlock();
+							}
+							else
+							{
+								std::cout << "client disconnected" << std::endl;
+								break; //disconnected
 							}
 						}
+						OS_CloseSocket(clientSocket);
+					}));
+				}
+			}
+		});
+
+		while (true)
+		{
+			std::lock_guard<std::mutex> l(messMut);
+			std::lock_guard<std::mutex> ls(socketMut);
+			if (!pendingInmessages.empty())
+			{
+				for (const auto& str : pendingInmessages)
+				{
+					for (auto& sock : sockets)
+					{
+						//send is atomic
+						OS_Send(sock, str.c_str(), str.length(),0);
 					}
-				} while (size > 0);
-				OS_CloseSocket(clientSocket);
+				}
+				pendingInmessages.clear();
 			}
 		}
+		OS_CloseSocket(socket);
 	}
 	else
 	{
@@ -134,29 +163,42 @@ int main(int argc, char* argv[])
 
 		if (OS_Connect(socket, sockAddrCast(sin), sinSize) < 0)
 		{
-			printf("cant connect socket\n");
+			std::cout << "cant connect socket" << std::endl;
 			OS_CloseSocket(socket);
 			exit(errno);
 		}
+		bool exit = false;
+		std::thread input([&exit, socket]() {
 
-		Sleep(20000);
-		OS_Send(socket, "*Wave*", 6, 0);
-		Sleep(2000);
-		OS_Send(socket, "Hello?", 6, 0);
-		char lbuf[1024];
-		int rsiz = OS_Recv(socket, lbuf, 1024, 0);
-		if (rsiz <= 0)
-		{
-			printf("failed rsiz=%d\n", rsiz);
-		}
-		else
-		{
-			std::string msg(lbuf, rsiz);
-			printf("<< %s \n", msg.c_str());
-		}
+			std::string str;
+			while (str != "EXIT")
+			{
+				std::cin >> str;
+				OS_Send(socket, str.c_str(), str.length(), 0);
+			}
+			exit = true;
+		});
+
+		std::thread draw([&exit,socket]() {
+			while (!exit)
+			{
+				char lbuf[1024];
+				int rsiz = OS_Recv(socket, lbuf, 1024, 0);
+				if (rsiz <= 0)
+				{
+					std::cout << "failed rsiz=" <<  rsiz << std::endl;
+				}
+				else
+				{
+					std::string msg(lbuf, rsiz);
+					std::cout << ">>" <<  msg << std::endl;
+				}
+			}
+		});
+		input.join();
+		draw.join();
+		OS_CloseSocket(socket);
 	}
-	OS_CloseSocket(socket);
-
 	OS_End();
 	return 0;
 }
