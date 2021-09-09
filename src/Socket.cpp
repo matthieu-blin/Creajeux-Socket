@@ -85,16 +85,18 @@ int main(int argc, char* argv[])
 		//transform port u short from host to network byte order 
 		sin.sin_port = htons(port);
 		//link your socket to a communication point 
+		printf("binding socket\n");
 		if (OS_Bind(socket, sockAddrCast(sin), sizeof(sin)) < 0)
 		{
 			printf("cant bind socket\n");
 			OS_CloseSocket(socket);
 			exit(errno);
 		}
+		printf("Listening\n");
 		OS_Listen(socket, 0);
 		while (true)
 		{
-			printf("waiting for client to connect...");
+			printf("waiting for client to connect...\n");
 			if (clientSocket = OS_Accept(socket, sockAddrCast(clientSin), &clientSinSize))
 			{
 				printf("client connected, waiting for msg\n");
@@ -112,19 +114,22 @@ int main(int argc, char* argv[])
 						size = OS_Recv(clientSocket, lbuf, 1024, 0);
 						if (size > 0)
 						{
+							printf("Message received\n");
 							std::string msg(lbuf, size);
 							printf("<< %s \n", msg.c_str());
 							if (msg.compare("Hello?") == 0)
 							{
-								printf(">> Hi!\n");
+								printf("Hello received, sending Hi Message\n");
 								OS_Send(clientSocket, "Hi!", 3, 0);
 							}
 						}
 					}
 				} while (size > 0);
 				OS_CloseSocket(clientSocket);
+				printf("Client socket closed\n");
 			}
 		}
+		//we should close the server socket gracefully to avoid issues with zombi socket 
 	}
 	else
 	{
@@ -132,18 +137,22 @@ int main(int argc, char* argv[])
 		//transform port u short from host to network byte order 
 		sin.sin_port = htons(port);
 
+		printf("tryng to connect...\n");
 		if (OS_Connect(socket, sockAddrCast(sin), sinSize) < 0)
 		{
 			printf("cant connect socket\n");
 			OS_CloseSocket(socket);
 			exit(errno);
 		}
-
-		Sleep(20000);
+		printf("connected...\n");
+		Sleep(2000);
+		printf("sending message Wave\n");
 		OS_Send(socket, "*Wave*", 6, 0);
 		Sleep(2000);
+		printf("sending message Hello\n");
 		OS_Send(socket, "Hello?", 6, 0);
 		char lbuf[1024];
+		printf("Waiting for msg...\n");
 		int rsiz = OS_Recv(socket, lbuf, 1024, 0);
 		if (rsiz <= 0)
 		{
@@ -151,11 +160,13 @@ int main(int argc, char* argv[])
 		}
 		else
 		{
+			printf("Message received\n");
 			std::string msg(lbuf, rsiz);
 			printf("<< %s \n", msg.c_str());
 		}
 	}
 	OS_CloseSocket(socket);
+	printf("Socket closed\n");
 
 	OS_End();
 	return 0;
